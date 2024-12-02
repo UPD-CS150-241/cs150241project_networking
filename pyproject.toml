@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "cs150241project-networking"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
-authors = ["Your Name <you@example.com>"]
+authors = []
 readme = "README.md"
 
 [tool.poetry.dependencies]
