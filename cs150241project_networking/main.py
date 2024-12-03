@@ -1,7 +1,6 @@
 from __future__ import annotations
 import threading
 from websockets import ConnectionClosed
-from websockets.sync.connection import Connection
 from websockets.sync.client import connect, ClientConnection
 from typing import NewType, Generator
 from dataclasses import dataclass
@@ -35,38 +34,25 @@ class Message:
         return f'{self.source} {self.payload}'
 
 
-class PlayerIdManager:
-    def __init__(self):
-        self._pid: PlayerId | None = None
-        self._pid_condvar = threading.Condition()
-
-    @property
-    def pid_ready(self) -> bool:
-        return self._pid is not None
-
-    def set_pid(self, pid: PlayerId) -> None:
-        with self._pid_condvar:
-            self._pid = pid
-            self._pid_condvar.notify_all()
-
-    def wait_for_pid(self) -> PlayerId:
-        with self._pid_condvar:
-            self._pid_condvar.wait_for(lambda: self.pid_ready)
-            assert self._pid is not None
-
-            return self._pid
-
-
 class CS150241ProjectNetworking:
     @classmethod
     def connect(cls, ip_addr: str, port: int) -> CS150241ProjectNetworking:
-        ret = CS150241ProjectNetworking()
-        ret.run_thread(ip_addr, port)
+        websocket = connect(f"ws://{ip_addr}:{port}")
+
+        logger.debug("Waiting for initial PID message")
+        raw = websocket.recv()
+        message = Message.from_raw(str(raw))
+        logger.debug("Received initial PID message")
+        player_id = message.source
+
+        ret = CS150241ProjectNetworking(websocket, player_id)
+        ret.start()
 
         return ret
 
-    def __init__(self):
-        self._pid = PlayerIdManager()
+    def __init__(self, websocket: ClientConnection, player_id: PlayerId):
+        self._websocket = websocket
+        self._player_id = player_id
 
         self._send_queue: list[Message] = []
         self._recv_queue: list[Message] = []
@@ -76,7 +62,38 @@ class CS150241ProjectNetworking:
 
         self._exit_signal = threading.Event()
 
-    def close_all_threads(self) -> None:
+    @property
+    def player_id(self):
+        return self._player_id
+
+    def start(self):
+        t1 = threading.Thread(target=self._sync_send_loop, daemon=True)
+        t2 = threading.Thread(target=self._sync_recv_loop, daemon=True)
+
+        t1.start()
+        t2.start()
+
+    def send(self, payload: str) -> None:
+        logger.debug("Trying to acquire send lock (send)")
+        with self._send_condvar:
+            message = Message(source=self.player_id, payload=payload)
+            logging.info(
+                f"Acquired send lock; queueing for sending: {message}")
+
+            self._send_queue.append(message)
+            self._send_condvar.notify_all()
+
+    def recv(self) -> Generator[Message, None, None]:
+        logger.debug("Trying to acquire recv lock (recv)")
+        with self._recv_condvar:
+            logger.debug("Acquired recv lock (recv); yielding recv queue data")
+
+            while self._recv_queue:
+                message = self._recv_queue.pop(0)
+                logging.info(f"Popping from recv queue: {message}")
+                yield message
+
+    def _close_all_threads(self) -> None:
         self._exit_signal.set()
 
         if self._send_condvar.acquire(blocking=False):
@@ -93,17 +110,17 @@ class CS150241ProjectNetworking:
         else:
             logging.debug("Failed to notify all waiting on recv condvar")
 
-    def sync_recv_loop(self, websocket: ClientConnection) -> None:
-        logger.debug('Thread: sync_recv_loop')
+    def _sync_recv_loop(self) -> None:
+        logger.debug('Thread: _sync_recv_loop')
 
         while not self._exit_signal.is_set():
-            logger.debug("Trying to recv from websocket (sync_recv_loop)")
+            logger.debug("Trying to recv from websocket (_sync_recv_loop)")
 
             try:
-                raw = websocket.recv()
+                raw = self._websocket.recv()
             except ConnectionClosed:
                 logger.info("Connection closed; ending recv loop")
-                self.close_all_threads()
+                self._close_all_threads()
                 break
 
             message = Message.from_raw(str(raw))
@@ -116,12 +133,12 @@ class CS150241ProjectNetworking:
 
         logger.info("Recv loop is done")
 
-    def sync_send_loop(self, websocket: ClientConnection) -> None:
-        logger.debug('Thread: sync_send_loop')
+    def _sync_send_loop(self) -> None:
+        logger.debug('Thread: _sync_send_loop')
         is_send_loop_running = True
 
         while is_send_loop_running and not self._exit_signal.is_set():
-            logger.debug("Trying to acquire send lock (sync_send_loop)")
+            logger.debug("Trying to acquire send lock ()sync_send_loop)")
             with self._send_condvar:
                 logger.debug(
                     "Acquired send lock (sync_send_loop); will wait for send queue data")
@@ -140,67 +157,14 @@ class CS150241ProjectNetworking:
                     logging.info(f"Sending: {message}")
 
                     try:
-                        websocket.send(message.as_sendable())
+                        self._websocket.send(message.as_sendable())
                     except ConnectionClosed:
                         logger.info("Connection closed; ending send loop")
-                        self.close_all_threads()
+                        self._close_all_threads()
                         is_send_loop_running = False
                         break
 
         logger.info("Send loop is done")
-
-    def send(self, payload: str) -> None:
-        logger.debug("Trying to acquire send lock (send)")
-        with self._send_condvar:
-            logger.debug("Acquired send lock; will wait for PID (send)")
-            message = Message(source=self._pid.wait_for_pid(), payload=payload)
-            logger.debug("Got PID")
-
-            logging.info(f"Queueing for sending: {message}")
-            self._send_queue.append(message)
-            self._send_condvar.notify_all()
-
-    def recv(self) -> Generator[Message, None, None]:
-        logger.debug("Trying to acquire recv lock (recv)")
-        with self._recv_condvar:
-            logger.debug("Acquired recv lock (recv); yielding recv queue data")
-
-            while self._recv_queue:
-                message = self._recv_queue.pop(0)
-                logging.info(f"Popping from recv queue: {message}")
-                yield message
-
-    def run_thread(self, ip_addr: str, port: int) -> threading.Thread:
-        t = threading.Thread(
-            target=self._sync_main, args=(ip_addr, port), daemon=True)
-        t.start()
-
-        return t
-
-    def _set_pid_from_message(self, websocket: Connection) -> None:
-        logger.debug("Waiting for initial PID message")
-        raw = websocket.recv()
-        message = Message.from_raw(str(raw))
-        logger.debug("Received initial PID message")
-        logger.debug('Trying to set PID')
-        self._pid.set_pid(message.source)
-        logger.debug('Successfully set PID')
-
-    def _sync_main(self, ip_addr: str, port: int) -> None:
-        logger.debug('Thread: Networking main')
-        with connect(f"ws://{ip_addr}:{port}") as websocket:
-            self._set_pid_from_message(websocket)
-
-            t1 = threading.Thread(target=self.sync_send_loop,
-                                  args=(websocket,), daemon=True)
-            t2 = threading.Thread(target=self.sync_recv_loop,
-                                  args=(websocket,), daemon=True)
-
-            t1.start()
-            t2.start()
-
-            t1.join()
-            t2.join()
 
 
 if __name__ == "__main__":
@@ -211,10 +175,9 @@ if __name__ == "__main__":
     logger.addHandler(handler)
     logger.setLevel('INFO')
 
-    networking = CS150241ProjectNetworking()
-    thread = networking.run_thread('localhost', 15000)
+    networking = CS150241ProjectNetworking.connect('localhost', 15000)
 
-    logging.info('Thread: Client')
+    logging.info(f'Client is Player {networking.player_id}')
     print('Client trying to send payload')
     networking.send("PAYLOAD 1")
     networking.send("PAYLOAD 2")
@@ -225,5 +188,3 @@ if __name__ == "__main__":
         print('Client recv loop:', m)
 
     print('Client done')
-
-    thread.join()
