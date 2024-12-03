@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cs150241project-networking"
-version = "0.2.1"
+version = "0.2.2"
 description = ""
 authors = []
 readme = "README.md"
@@ -8,9 +8,6 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 websockets = "^14.1"
-
-[tool.poetry.include]
-include = [{ path = "typings", include = "**/*.pyi" }]
 
 [build-system]
 requires = ["poetry-core"]
