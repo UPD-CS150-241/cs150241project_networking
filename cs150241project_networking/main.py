@@ -58,6 +58,13 @@ class PlayerIdManager:
 
 
 class CS150241ProjectNetworking:
+    @classmethod
+    def connect(cls, ip_addr: str, port: int) -> CS150241ProjectNetworking:
+        ret = CS150241ProjectNetworking()
+        ret.run_thread(ip_addr, port)
+
+        return ret
+
     def __init__(self):
         self._pid = PlayerIdManager()
 

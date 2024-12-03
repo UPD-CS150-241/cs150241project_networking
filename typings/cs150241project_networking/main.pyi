@@ -43,6 +43,10 @@ class PlayerIdManager:
 
 
 class CS150241ProjectNetworking:
+    @classmethod
+    def connect(cls, ip_addr: str, port: int) -> CS150241ProjectNetworking:
+        ...
+    
     def __init__(self) -> None:
         ...
     
