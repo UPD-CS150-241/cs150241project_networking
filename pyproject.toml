@@ -10,7 +10,7 @@ python = "^3.10"
 websockets = "^14.1"
 
 [tool.poetry.include]
-include = [{ path = "types", include = "**/*.pyi" }]
+include = [{ path = "typings", include = "**/*.pyi" }]
 
 [build-system]
 requires = ["poetry-core"]
