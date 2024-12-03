@@ -26,7 +26,8 @@ networking = CS150241ProjectNetworking.connect('localhost', 15000)
 latest_message = None
 
 font = pygame.font.SysFont("", 24)
-id_text_obj = font.render(f"You are Player {networking.player_id}", False, 'white')
+id_text_obj = font.render(
+    f"You are Player {networking.player_id}", False, 'white')
 
 while True:
     if random.randint(1, 100) <= 2:
@@ -42,9 +43,18 @@ while True:
 
     screen.fill('black')
 
+    frame_count_text_obj = font.render(
+        f'Frame count: {frame_count}', False, 'white')
+    screen.blit(
+        frame_count_text_obj,
+        (width // 2 - frame_count_text_obj.width // 2,
+         height // 2 - frame_count_text_obj.height // 2)
+    )
+
     screen.blit(
         id_text_obj,
-        (width // 2 - id_text_obj.width // 2, height // 2 - id_text_obj.height // 2 - 50)
+        (width // 2 - id_text_obj.width // 2,
+         height // 2 - id_text_obj.height // 2 - 50)
     )
 
     if latest_message is not None:
@@ -52,7 +62,8 @@ while True:
             f'Message from Player {latest_message.source}: {latest_message.payload}', False, 'white')
         screen.blit(
             text_obj,
-            (width // 2 - text_obj.width // 2, height // 2 - text_obj.height // 2 + 50)
+            (width // 2 - text_obj.width // 2,
+             height // 2 - text_obj.height // 2 + 50)
         )
 
     pygame.display.flip()

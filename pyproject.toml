@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cs150241project-networking"
-version = "0.4.0"
+version = "0.4.1"
 description = ""
 authors = []
 readme = "README.md"
