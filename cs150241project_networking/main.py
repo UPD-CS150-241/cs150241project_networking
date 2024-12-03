@@ -3,7 +3,7 @@ import threading
 from websockets import ConnectionClosed
 from websockets.sync.connection import Connection
 from websockets.sync.client import connect, ClientConnection
-from typing import NewType
+from typing import NewType, Generator
 from dataclasses import dataclass
 import logging
 
@@ -13,7 +13,7 @@ logger = logging.getLogger()
 PlayerId = NewType('PlayerId', int)
 
 
-def thread_id_filter(record: logging.LogRecord):
+def thread_id_filter(record: logging.LogRecord) -> logging.LogRecord:
     record.thread_id = threading.get_native_id()
     return record
 
@@ -31,7 +31,7 @@ class Message:
 
         return Message(source=source, payload=payload)
 
-    def as_sendable(self):
+    def as_sendable(self) -> str:
         return f'{self.source} {self.payload}'
 
 
@@ -44,7 +44,7 @@ class PlayerIdManager:
     def pid_ready(self) -> bool:
         return self._pid is not None
 
-    def set_pid(self, pid: PlayerId):
+    def set_pid(self, pid: PlayerId) -> None:
         with self._pid_condvar:
             self._pid = pid
             self._pid_condvar.notify_all()
@@ -69,7 +69,7 @@ class CS150241ProjectNetworking:
 
         self._exit_signal = threading.Event()
 
-    def close_all_threads(self):
+    def close_all_threads(self) -> None:
         self._exit_signal.set()
 
         if self._send_condvar.acquire(blocking=False):
@@ -86,7 +86,7 @@ class CS150241ProjectNetworking:
         else:
             logging.debug("Failed to notify all waiting on recv condvar")
 
-    def sync_recv_loop(self, websocket: ClientConnection):
+    def sync_recv_loop(self, websocket: ClientConnection) -> None:
         logger.debug('Thread: sync_recv_loop')
 
         while not self._exit_signal.is_set():
@@ -109,7 +109,7 @@ class CS150241ProjectNetworking:
 
         logger.info("Recv loop is done")
 
-    def sync_send_loop(self, websocket: ClientConnection):
+    def sync_send_loop(self, websocket: ClientConnection) -> None:
         logger.debug('Thread: sync_send_loop')
         is_send_loop_running = True
 
@@ -142,7 +142,7 @@ class CS150241ProjectNetworking:
 
         logger.info("Send loop is done")
 
-    def send(self, payload: str):
+    def send(self, payload: str) -> None:
         logger.debug("Trying to acquire send lock (send)")
         with self._send_condvar:
             logger.debug("Acquired send lock; will wait for PID (send)")
@@ -153,20 +153,10 @@ class CS150241ProjectNetworking:
             self._send_queue.append(message)
             self._send_condvar.notify_all()
 
-    def recv(self):
+    def recv(self) -> Generator[Message, None, None]:
         logger.debug("Trying to acquire recv lock (recv)")
         with self._recv_condvar:
-            logger.debug(
-                "Acquired recv lock (recv); will wait for recv queue data")
-
-            self._recv_condvar.wait_for(lambda: len(self._recv_queue) > 0
-                                        or self._exit_signal.is_set())
-
-            if self._exit_signal.is_set():
-                logger.info("recv is exiting due to exit signal")
-                return
-
-            logger.debug("recv queue data found; will process")
+            logger.debug("Acquired recv lock (recv); yielding recv queue data")
 
             while self._recv_queue:
                 message = self._recv_queue.pop(0)
@@ -180,7 +170,7 @@ class CS150241ProjectNetworking:
 
         return t
 
-    def _set_pid_from_message(self, websocket: Connection):
+    def _set_pid_from_message(self, websocket: Connection) -> None:
         logger.debug("Waiting for initial PID message")
         raw = websocket.recv()
         message = Message.from_raw(str(raw))
@@ -189,7 +179,7 @@ class CS150241ProjectNetworking:
         self._pid.set_pid(message.source)
         logger.debug('Successfully set PID')
 
-    def _sync_main(self, ip_addr: str, port: int):
+    def _sync_main(self, ip_addr: str, port: int) -> None:
         logger.debug('Thread: Networking main')
         with connect(f"ws://{ip_addr}:{port}") as websocket:
             self._set_pid_from_message(websocket)
