@@ -31,7 +31,7 @@ class Message:
         return Message(source=source, payload=payload)
 
     def as_sendable(self) -> str:
-        return f'{self.source} {self.payload}'
+        return self.payload
 
 
 class CS150241ProjectNetworking:
